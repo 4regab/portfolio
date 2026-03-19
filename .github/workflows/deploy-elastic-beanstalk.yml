@@ -1,0 +1,140 @@
+name: Deploy To Elastic Beanstalk
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: elastic-beanstalk-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  EB_APPLICATION_NAME: ${{ vars.EB_APPLICATION_NAME }}
+  EB_ENVIRONMENT_NAME: ${{ vars.EB_ENVIRONMENT_NAME }}
+  EB_PLATFORM_ARN: ${{ vars.EB_PLATFORM_ARN }}
+  EB_INSTANCE_PROFILE: ${{ vars.EB_INSTANCE_PROFILE }}
+  EB_SERVICE_ROLE: ${{ vars.EB_SERVICE_ROLE }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate deployment configuration
+        env:
+          AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          test -n "$AWS_REGION" || { echo "Missing repository variable AWS_REGION."; exit 1; }
+          test -n "$EB_APPLICATION_NAME" || { echo "Missing repository variable EB_APPLICATION_NAME."; exit 1; }
+          test -n "$EB_ENVIRONMENT_NAME" || { echo "Missing repository variable EB_ENVIRONMENT_NAME."; exit 1; }
+          test -n "$AWS_ROLE_TO_ASSUME" || { echo "Missing repository secret AWS_ROLE_TO_ASSUME."; exit 1; }
+
+          if [ -n "$EB_PLATFORM_ARN" ] || [ -n "$EB_INSTANCE_PROFILE" ] || [ -n "$EB_SERVICE_ROLE" ]; then
+            test -n "$EB_PLATFORM_ARN" || { echo "EB_PLATFORM_ARN is required when enabling environment creation."; exit 1; }
+            test -n "$EB_INSTANCE_PROFILE" || { echo "EB_INSTANCE_PROFILE is required when enabling environment creation."; exit 1; }
+            test -n "$EB_SERVICE_ROLE" || { echo "EB_SERVICE_ROLE is required when enabling environment creation."; exit 1; }
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build application
+        run: pnpm build
+
+      - name: Prepare Elastic Beanstalk bundle
+        run: pnpm package:eb
+
+      - name: Create Elastic Beanstalk source bundle
+        run: |
+          cd build/elastic-beanstalk-bundle
+          zip -r ../elastic-beanstalk.zip .
+
+      - name: Upload deployment bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: elastic-beanstalk-bundle
+          path: build/elastic-beanstalk.zip
+          if-no-files-found: error
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to existing Elastic Beanstalk environment
+        id: deploy_existing
+        if: ${{ env.EB_PLATFORM_ARN == '' || env.EB_INSTANCE_PROFILE == '' || env.EB_SERVICE_ROLE == '' }}
+        uses: aws-actions/aws-elasticbeanstalk-deploy@v1.0.2
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          application-name: ${{ env.EB_APPLICATION_NAME }}
+          environment-name: ${{ env.EB_ENVIRONMENT_NAME }}
+          deployment-package-path: build/elastic-beanstalk.zip
+          create-application-if-not-exists: false
+          create-environment-if-not-exists: false
+          version-label: ${{ github.sha }}
+
+      - name: Deploy and create Elastic Beanstalk environment if needed
+        id: deploy_create
+        if: ${{ env.EB_PLATFORM_ARN != '' && env.EB_INSTANCE_PROFILE != '' && env.EB_SERVICE_ROLE != '' }}
+        uses: aws-actions/aws-elasticbeanstalk-deploy@v1.0.2
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          application-name: ${{ env.EB_APPLICATION_NAME }}
+          environment-name: ${{ env.EB_ENVIRONMENT_NAME }}
+          platform-arn: ${{ env.EB_PLATFORM_ARN }}
+          deployment-package-path: build/elastic-beanstalk.zip
+          version-label: ${{ github.sha }}
+          option-settings: |
+            [
+              {
+                "Namespace": "aws:autoscaling:launchconfiguration",
+                "OptionName": "IamInstanceProfile",
+                "Value": "${{ env.EB_INSTANCE_PROFILE }}"
+              },
+              {
+                "Namespace": "aws:elasticbeanstalk:environment",
+                "OptionName": "ServiceRole",
+                "Value": "${{ env.EB_SERVICE_ROLE }}"
+              },
+              {
+                "Namespace": "aws:elasticbeanstalk:managedactions",
+                "OptionName": "ManagedActionsEnabled",
+                "Value": "true"
+              },
+              {
+                "Namespace": "aws:elasticbeanstalk:managedactions:platformupdate",
+                "OptionName": "UpdateLevel",
+                "Value": "minor"
+              }
+            ]
+
+      - name: Deployment summary
+        if: ${{ steps.deploy_existing.outcome == 'success' || steps.deploy_create.outcome == 'success' }}
+        run: |
+          echo "Elastic Beanstalk deployment completed."
+          echo "Existing environment URL: ${{ steps.deploy_existing.outputs.environment-url }}"
+          echo "Created or updated environment URL: ${{ steps.deploy_create.outputs.environment-url }}"

@@ -1,0 +1,34 @@
+---
+title: "TaskSync MCP: Give Agents New Instructions Mid-Task"
+publishedAt: "2025-12-15"
+summary: "An MCP server that lets you give new instructions to an AI agent while it's working, using a get_feedback tool from feedback.md."
+images:
+  - "/images/projects/tasksyncmcp.jpg"
+team:
+  - name: "James Gabriele"
+    role: "Creator & Lead Developer"
+    avatar: "/images/avatar.jpg"
+    linkedIn: "https://www.linkedin.com/in/4regab/"
+link: "https://github.com/4regab/tasksync-mcp"
+tags:
+  - TypeScript
+  - Node.js
+  - MCP
+---
+
+## Overview
+
+TaskSync MCP is a Model Context Protocol server that enables users to provide new instructions to an AI agent while it's actively working on a task. It uses a `get_feedback` tool powered by a `feedback.md` file, enabling real-time human-agent collaboration.
+
+## Key Features
+
+- **Mid-Task Instructions**: Send new directives to AI agents without interrupting their current workflow.
+- **MCP Protocol**: Built on the Model Context Protocol standard for broad compatibility with AI tools and agents.
+- **Feedback File System**: Uses a simple `feedback.md` file as the communication channel between human and agent.
+- **Lightweight**: Minimal setup required — works with any MCP-compatible AI client.
+
+## Technologies Used
+
+- **TypeScript**: Core server logic and MCP protocol implementation.
+- **Model Context Protocol**: For standardized agent-tool communication.
+- **Node.js**: Server runtime.
