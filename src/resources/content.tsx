@@ -12,7 +12,7 @@ import {
 const person: Person = {
   firstName: "James Gabriele",
   lastName: "Torzar",
-  name: "James Gabriele T.",
+  name: "James Gabriele",
   role: "Information Technology Student | Aspiring Cloud and AI Engineer",
   avatar: "/images/avatar.jpg",
   email: "james@4regab.dev",
